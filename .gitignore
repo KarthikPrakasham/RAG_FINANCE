@@ -6,3 +6,6 @@ venv/
 *.egg-info/
 .ipynb_checkpoints/
 .DS_Store
+
+# Generated at ingestion time — not source-controlled
+backend/ingestion/bm25_encoder.json

@@ -3,6 +3,13 @@ Stage 4 (vector upsert) — pushes embedded chunks into the pre-existing
 Pinecone index (created externally for text-embedding-3-large @
 Settings.embedding_dimensions). This module never creates, deletes, or
 reconfigures the index — it only connects, validates, and upserts.
+
+Hybrid search support
+---------------------
+When EmbeddedChunk.sparse_values is populated, to_pinecone_vectors() includes
+it in the upsert record as the `sparse_values` key. Pinecone requires the index
+metric to be `dotproduct` for hybrid queries — verify_index_dimensions() now
+also checks this and raises IndexDimensionMismatch if the metric is wrong.
 """
 from __future__ import annotations
 
@@ -17,7 +24,8 @@ from ingestion.parsers.parser import Chunk
 
 
 class IndexDimensionMismatch(RuntimeError):
-    """The configured embedding_dimensions doesn't match the live index."""
+    """The configured embedding_dimensions doesn't match the live index,
+    or the index metric is not dotproduct (required for hybrid search)."""
 
 
 @lru_cache(maxsize=2)
@@ -36,13 +44,21 @@ def get_index(settings: Settings | None = None):
 
 def verify_index_dimensions(pc: Pinecone, settings: Settings) -> None:
     """Fail fast — before spending any OpenAI calls — if the live index's
-    dimension doesn't match what we're configured to embed at."""
+    dimension doesn't match what we're configured to embed at, or if the
+    index metric is not dotproduct (required for hybrid queries)."""
     info = pc.describe_index(settings.pinecone_index_name)
     if info.dimension != settings.embedding_dimensions:
         raise IndexDimensionMismatch(
             f"Pinecone index {settings.pinecone_index_name!r} has dimension="
             f"{info.dimension}, but Settings.embedding_dimensions="
             f"{settings.embedding_dimensions}."
+        )
+    metric = getattr(info, "metric", None)
+    if metric and metric.lower() != "dotproduct":
+        raise IndexDimensionMismatch(
+            f"Pinecone index {settings.pinecone_index_name!r} uses metric={metric!r}. "
+            "Hybrid search requires metric='dotproduct'. "
+            "Create a new index with dotproduct metric and update PINECONE_INDEX_NAME."
         )
 
 
@@ -60,11 +76,29 @@ def _chunk_metadata(chunk: Chunk) -> dict:
 
 def to_pinecone_vectors(
     embedded_chunks: list[EmbeddedChunk],
-) -> list[tuple[str, list[float], dict]]:
-    return [
-        (ec.chunk.chunk_id, ec.values, _chunk_metadata(ec.chunk))
-        for ec in embedded_chunks
-    ]
+) -> list[dict]:
+    """Build the list of upsert records Pinecone's SDK accepts.
+
+    Each record is a dict with:
+      - id: the chunk_id (content hash)
+      - values: dense float vector
+      - sparse_values: BM25 sparse vector dict (only when present)
+      - metadata: all non-None Chunk fields including the raw text
+
+    Using dicts (instead of the old 3-tuple form) lets us conditionally include
+    sparse_values without breaking the upsert call when it's absent.
+    """
+    records = []
+    for ec in embedded_chunks:
+        record: dict = {
+            "id": ec.chunk.chunk_id,
+            "values": ec.values,
+            "metadata": _chunk_metadata(ec.chunk),
+        }
+        if ec.sparse_values is not None:
+            record["sparse_values"] = ec.sparse_values.to_pinecone_dict()
+        records.append(record)
+    return records
 
 
 def existing_chunk_ids(
@@ -96,6 +130,9 @@ def upsert_embedded_chunks(
     Upsert is by chunk_id, so re-running with the same chunks overwrites
     rather than duplicates — this is the idempotency guarantee, independent
     of whether the caller skipped unchanged chunks upstream.
+
+    When EmbeddedChunk.sparse_values is set, each record is upserted with
+    both dense and sparse vectors, enabling hybrid queries on the index.
     """
     if not embedded_chunks:
         return 0
@@ -104,11 +141,11 @@ def upsert_embedded_chunks(
     pc, index = get_index(settings)
     verify_index_dimensions(pc, settings)
 
-    vectors = to_pinecone_vectors(embedded_chunks)
-    index.upsert(
-        vectors=vectors,
-        namespace=settings.pinecone_namespace,
-        batch_size=settings.pinecone_upsert_batch_size,
-        show_progress=True,
-    )
-    return len(vectors)
+    records = to_pinecone_vectors(embedded_chunks)
+    batch_size = settings.pinecone_upsert_batch_size
+
+    for i in range(0, len(records), batch_size):
+        batch = records[i : i + batch_size]
+        index.upsert(vectors=batch, namespace=settings.pinecone_namespace)
+
+    return len(records)
