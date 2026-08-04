@@ -1,0 +1,58 @@
+# ---------------------------------------------------------------------------
+# Guardrail Policy Configuration
+# Loaded at startup; individual modules read these values if needed.
+# ---------------------------------------------------------------------------
+
+inbound:
+  # Order in which inbound checks are applied.
+  pipeline:
+    - prompt_injection
+    - pii_detector
+    - domain_classifier
+
+  prompt_injection:
+    enabled: true
+    # Add extra patterns here; they are appended to the hardcoded list.
+    extra_patterns: []
+
+  pii_detector:
+    enabled: true
+    # Categories to enforce. Remove a category name to disable it.
+    categories:
+      - SSN
+      - credit_card
+      - phone
+      - email
+      - dob
+
+  domain_classifier:
+    enabled: true
+    # If true, ambiguous queries (no in-scope or out-of-scope match) are allowed.
+    allow_ambiguous: true
+    # Extra in-scope terms to add beyond the built-in list.
+    extra_in_scope_terms: []
+    # Extra out-of-scope terms to add beyond the built-in list.
+    extra_out_of_scope_terms: []
+
+outbound:
+  pipeline:
+    - pii_detector
+
+  pii_detector:
+    enabled: true
+
+# Human-readable block messages returned to the UI.
+messages:
+  prompt_injection: >
+    Your request appears to contain instructions that attempt to override
+    system behaviour. Please rephrase your question.
+  pii: >
+    Your message contains personal information (e.g. SSN, credit card number,
+    or email address). Please remove sensitive data before submitting.
+  out_of_scope: >
+    I'm designed to help with U.S. financial regulations, fair-lending, and
+    consumer credit-rights questions only. Please consult an appropriate
+    resource for your request.
+  outbound_pii: >
+    The generated response contained sensitive information and has been
+    withheld. Please contact support if this persists.

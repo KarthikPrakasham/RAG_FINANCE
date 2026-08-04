@@ -51,6 +51,8 @@ class Conversation(Base):
         index=True
     )
 
+    user_id = Column(String, nullable=True, index=True)
+
     role = Column(String)
 
     message = Column(Text)
@@ -65,6 +67,7 @@ class Conversation(Base):
         return {
             "id": self.id,
             "session_id": self.session_id,
+            "user_id": self.user_id,
             "role": self.role,
             "message": self.message,
             "created_at": self.created_at.isoformat() if self.created_at else None,

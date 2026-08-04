@@ -5,13 +5,14 @@ from .models import Conversation
 class ConversationRepository(BaseRepository):
     """All SQLite reads/writes for the ``conversation`` table."""
 
-    def add(self, session_id: str, role: str, message: str) -> dict:
+    def add(self, session_id: str, role: str, message: str, user_id: str | None = None) -> dict:
         """Append one turn to a session and return it as a plain dict."""
 
         with self._write() as db:
 
             row = Conversation(
                 session_id=session_id,
+                user_id=user_id,
                 role=role,
                 message=message
             )

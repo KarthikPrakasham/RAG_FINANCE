@@ -16,40 +16,79 @@
   display: block;
   height: 100%;
 } */
- :host {
-  /* Enterprise Navy Theme */
+//  :host {
+//   /* Enterprise Navy Theme */
+
+//   /* Brand Colors */
+//   --brand: #0F172A;
+//   --brand-dark: #020617;
+//   --brand-soft: #DBEAFE;
+
+//   /* Primary Gradient */
+//   --brand-gradient: linear-gradient(
+//     135deg,
+//     #0F172A 0%,
+//     #1E3A8A 45%,
+//     #2563EB 100%
+//   );
+
+//   /* Background */
+//   --bg: #F8FAFC;
+
+//   /* Chat Bubbles */
+//   --user-bubble: #2563EB;
+//   --assistant-bubble: #FFFFFF;
+
+//   /* Text */
+//   --text: #1E293B;
+//   --muted: #64748B;
+
+//   /* Additional Colors */
+//   --surface: #FFFFFF;
+//   --border: #CBD5E1;
+
+//   --success: #10B981;
+//   --warning: #F59E0B;
+//   --error: #EF4444;
+
+//   display: block;
+//   height: 100%;
+// }
+:host {
+  /* US Federal Theme */
 
   /* Brand Colors */
-  --brand: #0F172A;
-  --brand-dark: #020617;
-  --brand-soft: #DBEAFE;
+  --brand: #1E3A8A;          /* Federal Blue */
+  --brand-dark: #0A2342;     /* Deep Navy */
+  --brand-soft: #EAF2FF;     /* Soft Blue */
 
-  /* Primary Gradient */
+  /* Signature Gradient */
   --brand-gradient: linear-gradient(
     135deg,
-    #0F172A 0%,
-    #1E3A8A 45%,
-    #2563EB 100%
+    #0A2342 0%,
+    #1E3A8A 55%,
+    #B22234 100%
   );
 
   /* Background */
-  --bg: #F8FAFC;
+  --bg: #F8FAFC;             /* Soft White */
 
   /* Chat Bubbles */
-  --user-bubble: #2563EB;
+  --user-bubble: #1E3A8A;    /* Blue */
   --assistant-bubble: #FFFFFF;
 
   /* Text */
-  --text: #1E293B;
-  --muted: #64748B;
+  --text: #1F2937;
+  --muted: #6B7280;
 
-  /* Additional Colors */
+  /* Surface */
   --surface: #FFFFFF;
-  --border: #CBD5E1;
+  --border: #D1D5DB;
 
-  --success: #10B981;
-  --warning: #F59E0B;
-  --error: #EF4444;
+  /* Accent Colors */
+  --success: #15803D;
+  --warning: #D97706;
+  --error: #B22234;          /* Flag Red */
 
   display: block;
   height: 100%;

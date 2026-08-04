@@ -1,63 +1,90 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.orm import declarative_base
+"""
+db.py — SQLAlchemy engine, session factory, and declarative base.
 
-DATABASE_URL = "sqlite:///chat_memory.db"
+Layout
+------
+* ``engine``        — SQLite engine with WAL mode for safe concurrent access.
+* ``SessionLocal``  — session factory used by ``BaseRepository``.
+* ``Base``          — declarative base imported by ``models.py``.
+* ``get_db()``      — FastAPI dependency that yields a scoped session and
+                      closes it automatically after the request.
 
+The DB file is stored next to this module so its location is stable
+regardless of the working directory the server is launched from.
+
+Application code should use ``MemoryService`` rather than importing
+this module directly.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Generator
+
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
+
+# ---------------------------------------------------------------------------
+# Database location — always next to this file
+# ---------------------------------------------------------------------------
+_DB_PATH = Path(__file__).resolve().parent / "chat_memory.db"
+DATABASE_URL = f"sqlite:///{_DB_PATH}"
+
+# ---------------------------------------------------------------------------
+# Engine
+# ---------------------------------------------------------------------------
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False}
+    connect_args={"check_same_thread": False},
 )
 
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_pragma(dbapi_conn, _connection_record) -> None:
+    """Enable WAL mode and foreign-key enforcement for every new connection."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
+# ---------------------------------------------------------------------------
+# Session factory
+# ---------------------------------------------------------------------------
 SessionLocal = sessionmaker(
     bind=engine,
     autoflush=False,
-    autocommit=False
+    autocommit=False,
 )
 
+# ---------------------------------------------------------------------------
+# Declarative base — imported by models.py
+# ---------------------------------------------------------------------------
 Base = declarative_base()
 
-# """
-# Persistent memory for the RAG pipeline.
 
-# This module owns the SQLite persistence layer: the SQLAlchemy engine, session
-# factory, and the ORM schema (chat sessions + messages). It is deliberately kept
-# independent of the other pipeline blocks (ingestion, retrieval, agent, …) so the
-# memory stage can be developed and tested on its own.
+# ---------------------------------------------------------------------------
+# FastAPI dependency
+# ---------------------------------------------------------------------------
+def get_db() -> Generator[Session, None, None]:
+    """
+    Yield a SQLAlchemy session for the duration of a request, then close it.
 
-# The higher-level API used by the rest of the app lives in
-# ``memory_service.py`` — application code should talk to ``MemoryService`` and
-# generally not import this module directly.
-# """
+    Usage in a router::
 
-# from __future__ import annotations
+        from memory.db import get_db
+        from sqlalchemy.orm import Session
 
-# import os
-# from contextlib import contextmanager
-# from datetime import datetime, timezone
-# from pathlib import Path
-# from typing import Iterator
+        @router.get("/example")
+        def example(db: Session = Depends(get_db)):
+            ...
+    """
+    db: Session = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-# from sqlalchemy import (
-#     JSON,
-#     DateTime,
-#     ForeignKey,
-#     Integer,
-#     String,
-#     Text,
-#     create_engine,
-#     event,
-# )
-# from sqlalchemy.orm import (
-#     Mapped,
-#     declarative_base,
-#     mapped_column,
-#     relationship,
-#     sessionmaker,
-# )
-
-# # --- Database location ------------------------------------------------------
-# # Store the SQLite file next to this module so the DB doesn't depend on the
 # # process's current working directory. Override with RAG_MEMORY_DB (a file path)
 # # or RAG_MEMORY_DB_URL (a full SQLAlchemy URL, e.g. a Postgres DSN) if needed.
 # MEMORY_DIR = Path(__file__).resolve().parent

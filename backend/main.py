@@ -41,10 +41,14 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting Consumer Credit Rights Assistant API (model=%s)", settings.llm_model)
-    # TODO: initialise DB connection pool, Pinecone client, BM25 index, etc.
+
+    # Initialise SQLite schema (creates tables + applies migrations)
+    from memory.init_db import init_database
+    init_database()
+    logger.info("Database initialised")
+
     yield
     logger.info("Shutting down API")
-    # TODO: clean up connections
 
 
 # ---------------------------------------------------------------------------

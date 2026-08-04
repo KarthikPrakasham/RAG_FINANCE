@@ -20,6 +20,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from api.core.config import Settings, get_settings
+from guardrails.rules import check_inbound, check_outbound
+from guardrails.models import GuardrailResult
 from api.schemas.chat import (
     ChatHistoryResponse,
     ChatRequest,
@@ -31,8 +33,17 @@ from api.schemas.chat import (
     SessionCreateResponse,
 )
 
+import yaml
+from pathlib import Path as _Path
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+# Load human-readable block messages from policy.yaml once at import time.
+_POLICY_PATH = _Path(__file__).resolve().parents[2] / "guardrails" / "policy.yaml"
+with _POLICY_PATH.open() as _f:
+    _POLICY = yaml.safe_load(_f)
+_BLOCK_MESSAGES: dict[str, str] = _POLICY.get("messages", {})
 
 
 # ---------------------------------------------------------------------------
@@ -77,43 +88,54 @@ async def chat(
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
-    # Step 2 — INBOUND guardrail check (stub)
-    # Replace with: from guardrails.rules import check_inbound
-    # result = check_inbound(body.query)
+    # Step 2 — INBOUND guardrail checks
+    #   • Prompt injection detection
+    #   • PII detection
+    #   • Domain classifier (out-of-scope)
     # ------------------------------------------------------------------
-    inbound_verdict = GuardrailVerdict(action="allow")
+    inbound: GuardrailResult = check_inbound(body.query)
 
-    if inbound_verdict.action == "block":
+    if inbound.blocked:
+        rule = inbound.rule or "unknown"
+        # Map rule name to a friendly message; fall back to the raw reason.
+        friendly_msg = _BLOCK_MESSAGES.get(
+            "out_of_scope" if rule == "domain_classifier" else rule,
+            inbound.reason or "Request blocked by content policy.",
+        )
+        # Domain out-of-scope → polite refusal as a normal response (not an HTTP error)
+        if rule == "domain_classifier":
+            return ChatResponse(
+                user_id=body.user_id,
+                session_id=body.session_id,
+                answer=friendly_msg,
+                citations=[],
+                guardrail=GuardrailVerdict(
+                    action="block",
+                    reason=inbound.reason,
+                    violations=inbound.violations,
+                ),
+                route="out_of_scope",
+                token_usage={},
+            )
+        # PII / prompt-injection → HTTP 400
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"guardrail": inbound_verdict.model_dump()},
+            detail={
+                "message": friendly_msg,
+                "guardrail": {
+                    "rule": rule,
+                    "reason": inbound.reason,
+                    "violations": inbound.violations,
+                },
+            },
         )
 
     # ------------------------------------------------------------------
-    # Step 3 — Route query (stub)
-    # Replace with: from retrieval.router import classify_query
-    # route = classify_query(body.query)
+    # Step 3 — (Route query deferred — guardrails handle out_of_scope;
+    #           legal docs and FRED CSV share one embedding pipeline,
+    #           so per-query routing is not needed until the retrieval
+    #           layer distinguishes structured vs unstructured sources.)
     # ------------------------------------------------------------------
-    route: str = "legal"   # placeholder — will be "legal" | "trend" | "out_of_scope"
-
-    if route == "out_of_scope":
-        # Return a polite refusal without calling the LLM.
-        return ChatResponse(
-            user_id=body.user_id,
-            session_id=body.session_id,
-            answer=(
-                "I'm designed to help with fair-lending and consumer credit-rights "
-                "questions only. Please consult an appropriate resource for your request."
-            ),
-            citations=[],
-            guardrail=GuardrailVerdict(
-                action="block",
-                reason="out_of_scope",
-                citations_present=False,
-            ),
-            route="out_of_scope",
-            token_usage={},
-        )
 
     # ------------------------------------------------------------------
     # Step 4 — Retrieve context / call FRED tool (stub)
@@ -133,11 +155,20 @@ async def chat(
     token_usage: dict[str, int] = {}
 
     # ------------------------------------------------------------------
-    # Step 6 — OUTBOUND guardrail check (stub)
-    # Replace with: from guardrails.rules import check_outbound
-    # outbound_verdict = check_outbound(answer)
+    # Step 6 — OUTBOUND guardrail check (PII scan on LLM answer)
     # ------------------------------------------------------------------
-    outbound_verdict = GuardrailVerdict(action="allow", citations_present=False)
+    outbound: GuardrailResult = check_outbound(answer)
+    if outbound.blocked:
+        answer = _BLOCK_MESSAGES.get(
+            "outbound_pii",
+            "The response contained sensitive information and has been withheld.",
+        )
+    outbound_verdict = GuardrailVerdict(
+        action=outbound.action,
+        reason=outbound.reason,
+        citations_present=False,
+        violations=outbound.violations,
+    )
 
     # ------------------------------------------------------------------
     # Step 7 — Persist turn to SQLite via MemoryService
@@ -147,8 +178,8 @@ async def chat(
     memory.save_message(session_id=body.session_id, role=body.role, message=body.query, user_id=body.user_id)
     memory.save_message(session_id=body.session_id, role="assistant", message=answer, user_id=body.user_id)
 
-    logger.info("chat response user=%s session=%s req_id=%s route=%s",
-                body.user_id, body.session_id, req_id, route)
+    logger.info("chat response user=%s session=%s req_id=%s",
+                body.user_id, body.session_id, req_id)
 
     return ChatResponse(
         user_id=body.user_id,
@@ -156,7 +187,7 @@ async def chat(
         answer=answer,
         citations=citations,
         guardrail=outbound_verdict,
-        route=route,   # type: ignore[arg-type]
+        route="legal",  # single pipeline for now; extend when retrieval routing is wired
         token_usage=token_usage,
     )
 
