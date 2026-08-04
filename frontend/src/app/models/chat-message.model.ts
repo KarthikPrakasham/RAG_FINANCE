@@ -49,6 +49,9 @@ export interface ChatMessage {
 /** Request payload sent to the RAG backend. */
 export interface ChatRequest {
   query: string;
+  user_id: string;
+  session_id: string;
+  role: MessageRole | 'system';
   /** Prior turns for multi-turn context; kept minimal for now. */
   history?: { role: MessageRole; text: string }[];
 }
