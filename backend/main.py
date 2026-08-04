@@ -106,7 +106,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 # Routers
 # ---------------------------------------------------------------------------
 
-app.include_router(health.router)           # GET /health, GET /metrics
-app.include_router(chat.router)             # POST /chat, GET /chat/history/{session_id}
-app.include_router(ingest.router)           # POST /ingest
-app.include_router(users.router)            # GET /users/{user_id}/profile
+app.include_router(health.router, prefix="/api")           # GET /api/health, GET /api/metrics
+app.include_router(chat.router, prefix="/api")             # POST /api/chat, GET /api/chat/history/{session_id}
+app.include_router(ingest.router, prefix="/api")           # POST /api/ingest
+app.include_router(users.router, prefix="/api")            # GET /api/users/{user_id}/profile

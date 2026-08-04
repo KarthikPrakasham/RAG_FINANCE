@@ -1,5 +1,5 @@
-import { Component, ElementRef, ViewChild, AfterViewChecked } from '@angular/core';
-import { ChatMessage } from '../../models/chat-message.model';
+import { AfterViewChecked, Component, ElementRef, OnInit, ViewChild } from '@angular/core';
+import { ChatMessage, ChatRequest } from '../../models/chat-message.model';
 import { ChatService } from '../../services/chat.service';
 
 @Component({
@@ -7,7 +7,7 @@ import { ChatService } from '../../services/chat.service';
   templateUrl: './chat.component.html',
   styleUrls: ['./chat.component.scss']
 })
-export class ChatComponent implements AfterViewChecked {
+export class ChatComponent implements AfterViewChecked, OnInit {
   /** The conversation transcript rendered in the UI. */
   messages: ChatMessage[] = [
     {
@@ -27,6 +27,8 @@ export class ChatComponent implements AfterViewChecked {
 
   @ViewChild('scrollAnchor') private scrollAnchor?: ElementRef<HTMLDivElement>;
   private shouldScroll = false;
+  private activeSessionId: string | null = null;
+  private readonly userId = 'frontend-user';
 
   /** Suggested prompts shown when the conversation is fresh. */
   readonly suggestions = [
@@ -38,6 +40,10 @@ export class ChatComponent implements AfterViewChecked {
 
   constructor(private chat: ChatService) {}
 
+  ngOnInit(): void {
+    this.createSession();
+  }
+
   ngAfterViewChecked(): void {
     if (this.shouldScroll) {
       this.scrollAnchor?.nativeElement.scrollIntoView({ behavior: 'smooth' });
@@ -47,21 +53,18 @@ export class ChatComponent implements AfterViewChecked {
 
   /** Reset the conversation and create a fresh session on the backend. */
   newChat(): void {
-    this.chat.newSession().subscribe({
-      next: () => {
-        this.messages = [
-          {
-            id: this.newId(),
-            role: 'assistant',
-            text: "Hi! I'm your Financial Regulations & Consumer Rights Assistant. Ask me about U.S. financial regulations, consumer rights, and fair lending.",
-            timestamp: new Date(),
-            status: 'done'
-          }
-        ];
-        this.draft = '';
-        this.isThinking = false;
-      },
-      error: (err) => console.error('Failed to create new session', err)
+    this.createSession(() => {
+      this.messages = [
+        {
+          id: this.newId(),
+          role: 'assistant',
+          text: "Hi! I'm your Financial Regulations & Consumer Rights Assistant. Ask me about U.S. financial regulations, consumer rights, and fair lending.",
+          timestamp: new Date(),
+          status: 'done'
+        }
+      ];
+      this.draft = '';
+      this.isThinking = false;
     });
   }
 
@@ -91,9 +94,44 @@ export class ChatComponent implements AfterViewChecked {
     // Start the latency clock as close to the request as possible.
     const startedAt = performance.now();
 
+    if (!this.activeSessionId) {
+      this.createSession(() => this.submitQuery(query, startedAt));
+      return;
+    }
+
+    this.submitQuery(query, startedAt);
+  }
+
+  private createSession(onReady?: () => void): void {
+    this.chat.newSession().subscribe({
+      next: (session) => {
+        this.activeSessionId = session.session_id;
+        onReady?.();
+      },
+      error: (err) => {
+        console.error('Failed to create new session', err);
+        this.pushMessage({
+          id: this.newId(),
+          role: 'assistant',
+          text: 'Sorry — I could not create a chat session. Please make sure the backend is running, then try again.',
+          timestamp: new Date(),
+          status: 'error'
+        });
+      }
+    });
+  }
+
+  private submitQuery(query: string, startedAt: number): void {
+    const request: ChatRequest = {
+      query,
+      user_id: this.userId,
+      session_id: this.activeSessionId ?? '',
+      role: 'user'
+    };
+
     // Call the RAG backend: the query is embedded and matched against the
     // ChromaDB vector store, and the grounded answer + citations come back.
-    this.chat.ask({ query }).subscribe({
+    this.chat.ask(request).subscribe({
       next: (response) => {
         const responseTimeMs = Math.round(performance.now() - startedAt);
 
