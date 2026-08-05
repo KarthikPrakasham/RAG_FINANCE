@@ -157,13 +157,12 @@ export class ChatComponent implements AfterViewChecked, OnInit {
         });
         this.isThinking = false;
       },
-      error: (err) => {
+      error: (err) => {     
+     
         this.pushMessage({
           id: this.newId(),
           role: 'assistant',
-          text:
-            'Sorry — I could not reach the policy service. Please make sure ' +
-            'the backend is running, then try again.',
+          text: this.userFriendlyMessage(err),           
           timestamp: new Date(),
           status: 'error'
         });
@@ -176,6 +175,28 @@ export class ChatComponent implements AfterViewChecked, OnInit {
   private pushMessage(message: ChatMessage): void {
     this.messages.push(message);
     this.shouldScroll = true;
+  }
+  private userFriendlyMessage(err: any): string {
+    debugger;
+    let respRule = err.error.detail.guardrail.rule;
+     let respText ='';
+        if(respRule== 'pii_detector'){
+          respText = "Your message appears to contain sensitive personal information. Please remove or mask any personal details and try again."
+
+        }
+        else if(respRule == 'prompt_injection'){
+          respText = "Your message appears to contain sensitive personal information. Please remove or mask any personal details and try again."
+
+        }
+         if(respRule == 'domain_classifier'){
+          respText = "aaa I'm designed to help with U.S. financial regulations, fair-lending, and consumer credit-rights questions only. Please consult an appropriate resource for your request."
+
+        }
+        else{
+          respText= 'Sorry — I could not reach the policy service. Please make sure ' +
+            'the backend is running, then try again.' 
+        }
+    return respText;
   }
 
   private newId(): string {

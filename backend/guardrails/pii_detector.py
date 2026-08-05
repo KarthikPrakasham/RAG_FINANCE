@@ -55,6 +55,15 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.IGNORECASE,
         ),
     ),
+    (
+    "bank_account",
+    re.compile(
+        r"\b(?:account|acct|account\s*number|a/c)\b"
+        r"\s*[:#-]?\s*"
+        r"\d{4,17}\b",
+        re.IGNORECASE,
+    ),
+    ),
 ]
 
 
