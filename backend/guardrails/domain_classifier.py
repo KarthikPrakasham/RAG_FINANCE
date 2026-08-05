@@ -54,14 +54,32 @@ _IN_SCOPE_PATTERNS = re.compile(
 # ---------------------------------------------------------------------------
 
 _OUT_OF_SCOPE_TERMS: list[str] = [
-    "recipe", "cooking", "sport", "football", "basketball", "baseball",
-    "movie", "film", "celebrity", "music", "song", "lyrics",
-    "weather", "forecast", "horoscope", "astrology",
-    "game", "video game", "gaming",
-    "relationship", "dating", "romance",
-    "homework", "essay", "write my",
-    "hack", "exploit", "malware", "ransomware",
-    "drug", "narcotic", "weapon", "firearm",
+    # Food & cooking
+    "recipe", "cook", "cooking", "bake", "baking", "pizza", "pasta",
+    "burger", "sandwich", "salad", "soup", "dessert", "ingredient",
+    "cuisine", "restaurant", "menu", "chef",
+    # Sports & entertainment
+    "sport", "football", "basketball", "baseball", "soccer", "tennis",
+    "cricket", "golf", "olympics", "athlete",
+    "movie", "film", "celebrity", "actor", "actress", "music", "song",
+    "lyrics", "album", "concert", "tv show", "anime",
+    # Weather / lifestyle
+    "weather", "forecast", "horoscope", "astrology", "zodiac",
+    # Gaming
+    "video game", "gaming", "minecraft", "fortnite", "playstation", "xbox",
+    # Relationships / social
+    "relationship", "dating", "romance", "breakup", "marriage",
+    # Academic cheating
+    "homework", "essay", "write my", "assignment",
+    # Security threats
+    "hack", "exploit", "malware", "ransomware", "phishing",
+    # Controlled substances / weapons
+    "drug", "narcotic", "weapon", "firearm", "ammunition",
+    # Travel / misc off-topic
+    "travel", "vacation", "hotel", "flight", "tourism",
+    "fitness", "workout", "exercise", "diet", "calories",
+    "fashion", "clothing", "outfit",
+    "pet", "dog", "cat", "animal",
 ]
 
 _OUT_OF_SCOPE_PATTERNS = re.compile(
@@ -82,6 +100,7 @@ def classify_domain(text: str) -> GuardrailResult:
     has_in_scope = bool(_IN_SCOPE_PATTERNS.search(text))
     has_out_of_scope = bool(_OUT_OF_SCOPE_PATTERNS.search(text))
 
+    # Explicit out-of-scope hit → block regardless of in-scope signals.
     if has_out_of_scope and not has_in_scope:
         return GuardrailResult(
             action="block",
@@ -90,8 +109,17 @@ def classify_domain(text: str) -> GuardrailResult:
             violations=["query_not_in_financial_domain"],
         )
 
+    # No in-scope signal at all → treat as off-topic and block.
+    if not has_in_scope:
+        return GuardrailResult(
+            action="block",
+            rule="domain_classifier",
+            reason="out_of_scope",
+            violations=["no_financial_domain_signal"],
+        )
+
     return GuardrailResult(
         action="allow",
         rule="domain_classifier",
-        reason="in_scope" if has_in_scope else "ambiguous",
+        reason="in_scope",
     )
