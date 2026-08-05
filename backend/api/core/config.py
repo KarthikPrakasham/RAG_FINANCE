@@ -43,11 +43,18 @@ class Settings(BaseSettings):
 
     # ----- RAG tunables -----
     rag_top_k: int = 5
-    grounding_threshold: float = 0.65
+    # Calibrated against golden_dataset.jsonl (see
+    # evaluation/calibrate_grounding_threshold.py) — correct/incorrect cosine
+    # score distributions overlap substantially on this corpus (correct:
+    # 0.379-0.778, incorrect: 0.387-0.729), so this midpoint is the best
+    # available split, not a clean decision boundary. Revisit if the
+    # orchestration layer adds LLM-judged groundedness instead of relying
+    # solely on this score cutoff.
+    grounding_threshold: float = 0.55
     hybrid_alpha: float = 0.5             # weight of dense in hybrid merge
 
     # ----- Chunking -----
-    chunk_size: int = 500
+    chunk_size: int = 250
     chunk_overlap: int = 50
 
     # ----- Memory / token budget -----

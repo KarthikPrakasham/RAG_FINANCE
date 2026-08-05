@@ -1,15 +1,16 @@
 """
 Stage 4 (vector upsert) — pushes embedded chunks into the pre-existing
 Pinecone index (created externally for text-embedding-3-large @
-Settings.embedding_dimensions). This module never creates, deletes, or
-reconfigures the index — it only connects, validates, and upserts.
+Settings.embedding_dimensions, metric=cosine). This module never creates,
+deletes, or reconfigures the index — it only connects, validates, and
+upserts.
 
-Hybrid search support
----------------------
-When EmbeddedChunk.sparse_values is populated, to_pinecone_vectors() includes
-it in the upsert record as the `sparse_values` key. Pinecone requires the index
-metric to be `dotproduct` for hybrid queries — verify_index_dimensions() now
-also checks this and raises IndexDimensionMismatch if the metric is wrong.
+Dense-only (no sparse/hybrid) — see ingest_embed.py's module docstring for
+why. to_pinecone_vectors() still includes sparse_values in the upsert record
+*if* EmbeddedChunk.sparse_values happens to be populated (e.g. a caller using
+embed_chunks_with_sparse() directly), but the production pipeline never sets
+it, so no metric requirement is enforced here — cosine, dotproduct, or
+euclidean would all work equally for a dense-only index.
 """
 from __future__ import annotations
 
@@ -24,8 +25,7 @@ from ingestion.parsers.parser import Chunk
 
 
 class IndexDimensionMismatch(RuntimeError):
-    """The configured embedding_dimensions doesn't match the live index,
-    or the index metric is not dotproduct (required for hybrid search)."""
+    """The configured embedding_dimensions doesn't match the live index."""
 
 
 @lru_cache(maxsize=2)
@@ -44,21 +44,13 @@ def get_index(settings: Settings | None = None):
 
 def verify_index_dimensions(pc: Pinecone, settings: Settings) -> None:
     """Fail fast — before spending any OpenAI calls — if the live index's
-    dimension doesn't match what we're configured to embed at, or if the
-    index metric is not dotproduct (required for hybrid queries)."""
+    dimension doesn't match what we're configured to embed at."""
     info = pc.describe_index(settings.pinecone_index_name)
     if info.dimension != settings.embedding_dimensions:
         raise IndexDimensionMismatch(
             f"Pinecone index {settings.pinecone_index_name!r} has dimension="
             f"{info.dimension}, but Settings.embedding_dimensions="
             f"{settings.embedding_dimensions}."
-        )
-    metric = getattr(info, "metric", None)
-    if metric and metric.lower() != "dotproduct":
-        raise IndexDimensionMismatch(
-            f"Pinecone index {settings.pinecone_index_name!r} uses metric={metric!r}. "
-            "Hybrid search requires metric='dotproduct'. "
-            "Create a new index with dotproduct metric and update PINECONE_INDEX_NAME."
         )
 
 
