@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # ----- LLM -----
     gemini_api_key: str = ""
     anthropic_api_key: str = ""
+    ollama_base_url: str = "http://localhost:11434"
     llm_model: str = "gemini-2.0-flash"
     llm_temperature: float = 0.0
     llm_max_tokens: int = 1024
