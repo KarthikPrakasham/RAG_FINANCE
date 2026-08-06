@@ -9,3 +9,6 @@ venv/
 
 # Generated at ingestion time — not source-controlled
 backend/ingestion/bm25_encoder.json
+
+# Scratch BM25 encoders re-fit on every ablation run — not source-controlled
+backend/evaluation/ablation/_stage*_bm25.json

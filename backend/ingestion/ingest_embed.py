@@ -1,15 +1,17 @@
 """
-Ingestion orchestrator: parse -> chunk -> embed (dense + sparse) -> upsert.
+Ingestion orchestrator: parse -> chunk -> embed (dense) -> upsert.
 
 Wired into POST /ingest via api/routers/ingest.py. The FRED CSV never routes
 through here — it's loaded separately via structured_data/fred_loader.py.
 
-Hybrid search support
----------------------
-The pipeline now calls embed_chunks_with_sparse() instead of embed_chunks().
-This produces both dense (OpenAI) and sparse (BM25) vectors in one pass and
-saves the fitted BM25 encoder to backend/ingestion/bm25_encoder.json so the
-retrieval side can reload it at query time via sparse_index.load_bm25().
+Dense-only (no sparse/hybrid)
+------------------------------
+Dense-only was chosen after evaluation/ablation Stages 5 and 6 both found
+sparse (BM25) never improved retrieval on this corpus, at any hybrid_alpha
+weight — see EVALUATION_METHODOLOGY.md Part C. embed_chunks_with_sparse()
+still exists in embeddings.py if hybrid is ever revisited, but this pipeline
+calls plain embed_chunks(); no BM25 encoder is fit and no sparse_values are
+sent to Pinecone.
 """
 from __future__ import annotations
 
@@ -19,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from api.core.config import Settings, get_settings
-from ingestion.embeddings import embed_chunks_with_sparse
+from ingestion.embeddings import embed_chunks
 from ingestion.parsers.parser import Chunk, parse_and_chunk
 from ingestion.pinecone_upsert import (
     existing_chunk_ids,
@@ -43,16 +45,12 @@ async def run_ingestion(
     force: bool,
     settings: Settings | None = None,
 ) -> IngestionResult:
-    """Parse the 4 source PDFs, chunk them (default strategy), embed with both
-    dense and sparse vectors, and upsert into Pinecone.
+    """Parse the 4 source PDFs, chunk them (default strategy), embed with
+    dense vectors, and upsert into Pinecone.
 
     force=False (default): skip re-embedding chunks whose chunk_id (a content
         hash — see parser.py) already exists in the index, since that means
         the content hasn't changed. No OpenAI calls for unchanged chunks.
-
-        Note: even when chunks are skipped for dense embedding, the BM25
-        encoder is always re-fit on the *full* corpus so its vocabulary stays
-        consistent with the full index. Only the Pinecone upsert is skipped.
 
     force=True: embed and upsert every chunk regardless. Still idempotent —
         Pinecone upsert is by ID, so re-sending an unchanged chunk overwrites
@@ -62,7 +60,7 @@ async def run_ingestion(
     try:
         chunks: list[Chunk] = await asyncio.to_thread(
             parse_and_chunk,
-            parser_backend="pypdf",
+            parser_backend="pdfplumber",
             chunk_strategy="sentence",
             chunk_size=settings.chunk_size,
             chunk_overlap=settings.chunk_overlap,
@@ -91,12 +89,7 @@ async def run_ingestion(
                 "force=False: %d/%d chunks unchanged, skipping re-embed", skipped, len(chunks)
             )
 
-        # Dense + sparse embedding in one pass.
-        # BM25 is always fit on the full corpus (all chunks, not just to_embed)
-        # so the saved encoder vocabulary is stable regardless of what's skipped.
-        embedded = await asyncio.to_thread(
-            embed_chunks_with_sparse, to_embed, settings
-        )
+        embedded = await asyncio.to_thread(embed_chunks, to_embed, settings)
         upserted = await asyncio.to_thread(upsert_embedded_chunks, embedded, settings)
 
         return IngestionResult(
@@ -105,7 +98,7 @@ async def run_ingestion(
             chunks_upserted=upserted,
             message=(
                 f"Parsed {len(chunks)} chunks from {documents_processed} documents; "
-                f"{upserted} embedded+upserted (dense+sparse), {skipped} skipped as unchanged."
+                f"{upserted} embedded+upserted (dense), {skipped} skipped as unchanged."
             ),
         )
     except Exception as exc:

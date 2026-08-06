@@ -256,7 +256,7 @@ def _build_node_parser(
 def chunk_pages(
     pages: list[ParsedPage],
     strategy: ChunkStrategy = "sentence",
-    chunk_size: int = 500,
+    chunk_size: int = 250,
     chunk_overlap: int = 50,
     window_size: int = 3,
     hierarchical_chunk_sizes: list[int] | None = None,
