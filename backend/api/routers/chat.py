@@ -131,29 +131,7 @@ async def chat(
         )
 
     # ------------------------------------------------------------------
-    # Step 3 — (Route query deferred — guardrails handle out_of_scope;
-    #           legal docs and FRED CSV share one embedding pipeline,
-    #           so per-query routing is not needed until the retrieval
-    #           layer distinguishes structured vs unstructured sources.)
-    # ------------------------------------------------------------------
-
-    # ------------------------------------------------------------------
-    # Step 4 — Retrieve grounded context
-    #
-    # TODO(retrieval): RetrievalService currently re-parses the bundled PDFs
-    # and ranks chunks with SimpleDenseRetriever's local keyword scorer. It
-    # does not yet query the Pinecone dense+sparse index populated by
-    # ingestion/ingest_embed.py. Replace it with Pinecone/BM25 hybrid query
-    # retrieval when completing the production retrieval integration.
-    # ------------------------------------------------------------------
-    from retrieval.router import RetrievalService
-
-    retrieval_service = RetrievalService(settings=settings)
-    retrieved_chunks: list[dict] = retrieval_service.retrieve(body.query, top_k=settings.rag_top_k)
-    citations: list[Citation] = []
-
-    # ------------------------------------------------------------------
-    # Step 5 — Build prompt and invoke the orchestration layer
+    # Steps 3–5 — Embed, retrieve, ground, then invoke the LLM
     # ------------------------------------------------------------------
     from memory.memory_service import MemoryService
     from orchestration.chains import OrchestrationService
@@ -166,22 +144,22 @@ async def chat(
     ]
 
     orchestrator = OrchestrationService(settings=settings)
-    answer, token_usage, _ = await orchestrator.generate_answer(
+    grounded_answer = await orchestrator.generate_grounded_answer(
         question=body.query,
         history=history_payload,
-        context=retrieved_chunks,
+        top_k=settings.rag_top_k,
     )
-
-    if retrieved_chunks:
-        citations = [
-            Citation(
-                source_doc=str(chunk.get("source_doc") or "unknown"),
-                law=str(chunk.get("law") or "Overview"),
-                section=str(chunk.get("section") or ""),
-                chunk_id=str(chunk.get("chunk_id") or ""),
-            )
-            for chunk in retrieved_chunks
-        ]
+    answer = grounded_answer.answer
+    token_usage = grounded_answer.token_usage
+    citations = [
+        Citation(
+            source_doc=citation.source_doc,
+            law=citation.law,
+            section=citation.section,
+            chunk_id=citation.chunk_id,
+        )
+        for citation in grounded_answer.context.citations
+    ]
 
     # ------------------------------------------------------------------
     # Step 6 — OUTBOUND guardrail check (PII scan on LLM answer)
@@ -195,7 +173,7 @@ async def chat(
     outbound_verdict = GuardrailVerdict(
         action=outbound.action,
         reason=outbound.reason,
-        citations_present=False,
+        citations_present=bool(citations),
         violations=outbound.violations,
     )
 
