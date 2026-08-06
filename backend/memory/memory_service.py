@@ -1,5 +1,6 @@
 from .conversation_repository import ConversationRepository
 from .session_repository import SessionRepository
+from .user_repository import UserRepository
 
 VALID_ROLES = ("user", "assistant", "system")
 
@@ -8,17 +9,19 @@ class MemoryService:
     """Chat-memory API used by the rest of the app.
 
     Holds no SQL of its own — every read/write goes through
-    ``SessionRepository`` / ``ConversationRepository``.
+    ``SessionRepository`` / ``ConversationRepository`` / ``UserRepository``.
     """
 
     def __init__(
         self,
         session_repository: SessionRepository = None,
-        conversation_repository: ConversationRepository = None
+        conversation_repository: ConversationRepository = None,
+        user_repository: UserRepository = None,
     ):
 
         self.sessions = session_repository or SessionRepository()
         self.conversations = conversation_repository or ConversationRepository()
+        self.users = user_repository or UserRepository()
 
     def create_session(
         self,
@@ -87,3 +90,26 @@ class MemoryService:
     ):
 
         return self.sessions.rename(session_id, title)
+
+
+    # ------------------------------------------------------------------
+    # Long-term memory (user profile / intent)
+    # ------------------------------------------------------------------
+
+    def get_user_intent(self, user_id: str) -> dict:
+        """Return the user's persisted profile_json (long-term memory).
+
+        Returns {} if the user doesn't exist yet.
+        """
+        return self.users.get_profile(user_id)
+
+    def update_user_intent(self, user_id: str, facts: dict) -> dict:
+        """Merge new facts into the user's profile (additive).
+
+        Returns the merged profile.
+        """
+        return self.users.update_profile(user_id, facts)
+
+    def set_user_intent(self, user_id: str, profile: dict) -> None:
+        """Replace the user's profile entirely (used after pruning)."""
+        self.users.set_profile(user_id, profile)

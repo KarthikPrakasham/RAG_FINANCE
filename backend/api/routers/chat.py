@@ -131,16 +131,28 @@ async def chat(
         )
 
     # ------------------------------------------------------------------
-    # Steps 3–5 — Embed, retrieve, ground, then invoke the LLM
+    # Steps 3–5 — Assemble memory context, retrieve, ground, invoke LLM
     # ------------------------------------------------------------------
     from memory.memory_service import MemoryService
+    from memory.token_budget import get_context_window
     from orchestration.chains import OrchestrationService
 
     memory = MemoryService()
-    history_rows = memory.get_recent_messages(session_id=body.session_id, limit=6)
+
+    # Long-term memory: user intent/profile persisted across sessions
+    user_intent = memory.get_user_intent(body.user_id)
+
+    # Short-term memory: token-budget-aware context window
+    # Returns (summary_of_older_turns, last_N_recent_turns)
+    summary, recent_turns = get_context_window(
+        body.session_id,
+        T=settings.token_budget_t,
+        N=settings.token_budget_n,
+        settings=settings,
+    )
     history_payload = [
-        {"role": row.role, "content": row.message}
-        for row in history_rows
+        {"role": t["role"], "content": t["message"]}
+        for t in recent_turns
     ]
 
     orchestrator = OrchestrationService(settings=settings)
@@ -148,6 +160,8 @@ async def chat(
         question=body.query,
         history=history_payload,
         top_k=settings.rag_top_k,
+        user_intent=user_intent if user_intent else None,
+        summary=summary if summary else None,
     )
     answer = grounded_answer.answer
     token_usage = grounded_answer.token_usage
@@ -182,6 +196,22 @@ async def chat(
     # ------------------------------------------------------------------
     memory.save_message(session_id=body.session_id, role=body.role, message=body.query, user_id=body.user_id)
     memory.save_message(session_id=body.session_id, role="assistant", message=answer, user_id=body.user_id)
+
+    # ------------------------------------------------------------------
+    # Step 7b — Extract user intent (async, fire-and-forget)
+    # Analyses the user's query to build long-term memory profile.
+    # Runs in background — never blocks the response.
+    # ------------------------------------------------------------------
+    import asyncio
+    from memory.intent_extractor import extract_and_update_intent
+
+    asyncio.create_task(
+        extract_and_update_intent(
+            user_id=body.user_id,
+            user_query=body.query,
+            settings=settings,
+        )
+    )
 
     logger.info("chat response user=%s session=%s req_id=%s",
                 body.user_id, body.session_id, req_id)

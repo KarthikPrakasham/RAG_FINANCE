@@ -66,12 +66,20 @@ def build_prompt(
     context: list[dict[str, Any]] | None = None,
     context_text: str | None = None,
     system_instruction: str | None = None,
+    user_intent: dict[str, Any] | None = None,
+    summary: str | None = None,
 ) -> str:
     """Assemble the final prompt sent to the LLM.
 
     ``context_text`` accepts the citation-labelled text produced by the current
     retrieval layer. ``context`` remains supported for callers using the older
     dictionary contract.
+
+    ``user_intent`` injects the user's persisted profile (long-term memory)
+    so the LLM has context about their situation across sessions.
+
+    ``summary`` injects the rolling conversation summary (short-term memory
+    compressed by the token budget manager) for continuity.
     """
     instruction = system_instruction or DEFAULT_SYSTEM_INSTRUCTION
     history_rows = _normalize_history(history)
@@ -87,9 +95,22 @@ def build_prompt(
             f"- {row['source_doc']}: {row['content']}" for row in context_rows
         ) or "- no retrieved context available"
 
+    # Build user intent block (long-term memory)
+    intent_block = ""
+    if user_intent:
+        import json
+        intent_block = f"\nUser profile (persisted facts about this user):\n{json.dumps(user_intent, indent=2)}\n"
+
+    # Build summary block (compressed short-term memory)
+    summary_block = ""
+    if summary and summary.strip():
+        summary_block = f"\nConversation summary (older turns):\n{summary.strip()}\n"
+
     return (
-        f"System instruction: {instruction}\n\n"
-        f"History:\n{history_block}\n\n"
+        f"System instruction: {instruction}\n"
+        f"{intent_block}"
+        f"{summary_block}\n"
+        f"Recent conversation:\n{history_block}\n\n"
         f"Context:\n{context_block}\n\n"
         f"User question:\n{question}"
     )
@@ -118,6 +139,8 @@ class OrchestrationService:
         history: list[dict[str, Any]] | None = None,
         top_k: int | None = None,
         system_instruction: str | None = None,
+        user_intent: dict[str, Any] | None = None,
+        summary: str | None = None,
     ) -> GroundedAnswer:
         """Answer only when the retrieval layer returns grounded context."""
         context_result = self.retrieve_context(question=question, top_k=top_k)
@@ -126,6 +149,8 @@ class OrchestrationService:
             history=history,
             context_text=context_result.context_text,
             system_instruction=system_instruction,
+            user_intent=user_intent,
+            summary=summary,
         )
         if not context_result.is_grounded:
             return GroundedAnswer(

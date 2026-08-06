@@ -1,9 +1,9 @@
 from sqlalchemy import inspect, text
 
 from .db import engine
-# Explicit model imports ensure Session and Conversation are registered
+# Explicit model imports ensure all tables are registered
 # with Base.metadata before create_all is called.
-from .models import Base, Session, Conversation  # noqa: F401
+from .models import Base, Session, Conversation, User, Summary  # noqa: F401
 
 
 def _apply_migrations() -> None:
