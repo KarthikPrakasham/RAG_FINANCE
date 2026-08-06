@@ -1,0 +1,24 @@
+{
+  "question": "What protections exist if I think I was denied housing credit because of my race?",
+  "system_instruction": "You are a finance-focused assistant for consumer credit and fair-lending questions. Use the provided context and avoid inventing legal claims.",
+  "history": [
+    {
+      "role": "user",
+      "content": "I was denied a mortgage and I want to understand my options."
+    },
+    {
+      "role": "assistant",
+      "content": "I can help explain the relevant fair-lending rules and suggest the next steps."
+    }
+  ],
+  "context": [
+    {
+      "source_doc": "FedReserve_Fair_Housing_Act.pdf",
+      "content": "The Fair Housing Act prohibits discrimination in housing-related lending decisions on protected bases such as race."
+    },
+    {
+      "source_doc": "FedReserve_ECOA_Regulation_B.pdf",
+      "content": "Regulation B requires creditors to make credit decisions based on creditworthiness and prohibits discrimination based on protected characteristics."
+    }
+  ]
+}

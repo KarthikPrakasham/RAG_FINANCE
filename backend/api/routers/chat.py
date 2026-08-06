@@ -138,21 +138,50 @@ async def chat(
     # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
-    # Step 4 — Retrieve context / call FRED tool (stub)
+    # Step 4 — Retrieve grounded context
+    #
+    # TODO(retrieval): RetrievalService currently re-parses the bundled PDFs
+    # and ranks chunks with SimpleDenseRetriever's local keyword scorer. It
+    # does not yet query the Pinecone dense+sparse index populated by
+    # ingestion/ingest_embed.py. Replace it with Pinecone/BM25 hybrid query
+    # retrieval when completing the production retrieval integration.
     # ------------------------------------------------------------------
-    retrieved_chunks: list[dict] = []   # will be populated by retrieval layer
+    from retrieval.router import RetrievalService
+
+    retrieval_service = RetrievalService(settings=settings)
+    retrieved_chunks: list[dict] = retrieval_service.retrieve(body.query, top_k=settings.rag_top_k)
     citations: list[Citation] = []
 
     # ------------------------------------------------------------------
-    # Step 5 — LLM call (stub)
-    # Replace with: from orchestration.chains import build_rag_chain
-    # chain = build_rag_chain(); answer = await chain.ainvoke(...)
+    # Step 5 — Build prompt and invoke the orchestration layer
     # ------------------------------------------------------------------
-    answer = (
-        "[ LLM response stub — retrieval and orchestration layers not yet wired. "
-        f"Query received: {body.query!r} ]"
+    from memory.memory_service import MemoryService
+    from orchestration.chains import OrchestrationService
+
+    memory = MemoryService()
+    history_rows = memory.get_recent_messages(session_id=body.session_id, limit=6)
+    history_payload = [
+        {"role": row.role, "content": row.message}
+        for row in history_rows
+    ]
+
+    orchestrator = OrchestrationService(settings=settings)
+    answer, token_usage, _ = await orchestrator.generate_answer(
+        question=body.query,
+        history=history_payload,
+        context=retrieved_chunks,
     )
-    token_usage: dict[str, int] = {}
+
+    if retrieved_chunks:
+        citations = [
+            Citation(
+                source_doc=str(chunk.get("source_doc") or "unknown"),
+                law=str(chunk.get("law") or "Overview"),
+                section=str(chunk.get("section") or ""),
+                chunk_id=str(chunk.get("chunk_id") or ""),
+            )
+            for chunk in retrieved_chunks
+        ]
 
     # ------------------------------------------------------------------
     # Step 6 — OUTBOUND guardrail check (PII scan on LLM answer)
@@ -173,8 +202,6 @@ async def chat(
     # ------------------------------------------------------------------
     # Step 7 — Persist turn to SQLite via MemoryService
     # ------------------------------------------------------------------
-    from memory.memory_service import MemoryService
-    memory = MemoryService()
     memory.save_message(session_id=body.session_id, role=body.role, message=body.query, user_id=body.user_id)
     memory.save_message(session_id=body.session_id, role="assistant", message=answer, user_id=body.user_id)
 
@@ -246,7 +273,17 @@ async def chat_history(
     """
     logger.info("history request session=%s", session_id)
 
-    # Stub: replace with:
-    #   from memory.db import get_db
-    #   messages = get_messages_for_session(session_id, db=next(get_db()))
-    return ChatHistoryResponse(session_id=session_id, messages=[])
+    from memory.memory_service import MemoryService
+
+    memory = MemoryService()
+    rows = memory.get_history(session_id)
+    messages = [
+        MessageRecord(
+            role=row.role if row.role in {"user", "assistant"} else "user",
+            content=row.message,
+            created_at=row.created_at,
+        )
+        for row in rows
+    ]
+
+    return ChatHistoryResponse(session_id=session_id, messages=messages)
