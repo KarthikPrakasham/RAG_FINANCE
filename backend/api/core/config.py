@@ -42,6 +42,17 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_max_tokens: int = 1024
 
+    # ----- Intent extraction (cheap/free model) -----
+    intent_extraction_model: str = "gemma3:4b"        # Ollama model for extraction
+    intent_fallback_model: str = "gemini-2.0-flash"   # Gemini fallback for extraction
+    intent_openai_model: str = "gpt-4o-mini"          # OpenAI last-resort for extraction
+    intent_max_profile_chars: int = 2000              # pruning threshold
+
+    # ----- Summariser -----
+    summarizer_model: str = "gemini-2.0-flash"        # primary model for conversation summarisation
+    summarizer_openai_model: str = "gpt-4o-mini"      # OpenAI fallback for summarisation
+    summarizer_max_tokens: int = 300
+
     # ----- RAG tunables -----
     rag_top_k: int = 5
     # Calibrated against golden_dataset.jsonl (see
